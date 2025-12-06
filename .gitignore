@@ -1,0 +1,5 @@
+cred.py
+.DS_Store
+/__pycache__
+*.iml
+*.xml
