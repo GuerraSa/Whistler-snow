@@ -110,7 +110,7 @@ df['Date'] = df['Date'].apply(parse_ski_date)
 
 table_block_id = '145e268796a88032969be9ff33906b3e'
 DATABASE_ID = '5c44378e-068f-4074-ab7b-6f3b31fb7633'
-SEASON_PAGE_ID = "2b8e268796a88004b66bc101e8f04340"
+SEASON_PAGE_ID = "2b8e268796a88004b66bc101e8f04340" # 25/26 Season
 
 rows = []
 has_more = True
