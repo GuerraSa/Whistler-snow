@@ -6,28 +6,10 @@ from datetime import datetime
 from cred import NOTION_ENDPOINT, HEADERS
 from notion_dbs import notion_db_id
 from data_urls import whistler_data_url
-
-# Start Playwright
-with sync_playwright() as p:
-    # Launch a headless browser
-    browser = p.chromium.launch(headless=True)
-    # Open a new browser tab
-    page = browser.new_page()
-    page.set_viewport_size({"width": 1920, "height": 1080})  # Set window size
-
-    # scrape the reviews page
-    page.goto(whistler_data_url['Lifts'])
-    # wait up to 5 seconds for element to appear
-    page.wait_for_selector('.row', timeout=5000)
-
-    # Retrieve the HTML content
-    html = page.content()
-    print(html)
-
-    # Close the browser
-    browser.close()
+from utils.func import whistler_peak_scrape
 
 
+html = whistler_peak_scrape(whistler_data_url['Lifts'], ".row")
 soup = bs4.BeautifulSoup(html, "html.parser")
 
 # 1. Initialize a list to hold the extracted data
