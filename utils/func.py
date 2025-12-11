@@ -17,8 +17,35 @@ def whistler_peak_scrape(url, selector):
 
         # Retrieve the HTML content
         html = page.content()
-        print(html)
 
         # Close the browser
         browser.close()
+
+    return html
+
+def parse_whistler_date(date_str):
+    """
+    Parses 'December 8, 2025 3pm' using strptime.
+    Format used: %B %d, %Y %I%p
+    """
+    try:
+        # 1. Clean whitespace
+        clean_str = date_str.strip()
+
+        # 2. Convert to uppercase for the AM/PM code (%p)
+        # strptime requires 'PM', but your data has 'pm'
+        clean_str = clean_str.upper()
+
+        # 3. Parse using strptime
+        # %B = Full Month Name (December)
+        # %d = Day of month (8)
+        # %Y = Year with century (2025)
+        # %I = Hour (12-hour clock) (03)
+        # %p = AM or PM (PM)
+        return datetime.strptime(clean_str, "%B %d, %Y %I%p")
+
+    except ValueError as e:
+        print(f"Could not parse date: {e}")
+        return None
+
 
