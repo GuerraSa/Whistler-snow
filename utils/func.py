@@ -1,7 +1,7 @@
 import playwright.sync_api
 from playwright.sync_api import sync_playwright
 
-def whistler_peak_scrape(url):
+def whistler_peak_scrape(url, selector):
     # Start Playwright
     with sync_playwright() as p:
         # Launch a headless browser
@@ -13,7 +13,7 @@ def whistler_peak_scrape(url):
         # scrape the reviews page
         page.goto(url)
         # wait up to 5 seconds for element to appear
-        page.wait_for_selector('.day-container', timeout=5000)
+        page.wait_for_selector(selector, timeout=5000)
 
         # Retrieve the HTML content
         html = page.content()

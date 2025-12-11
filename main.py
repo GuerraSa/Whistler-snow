@@ -7,29 +7,11 @@ import bs4
 import pandas as pd
 from datetime import datetime
 from cred import NOTION_ENDPOINT, HEADERS
+from data_urls import whistler_data_url
+from utils.func import whistler_peak_scrape
 
-url = "https://whistlerpeak.com/snow/history"
 
-# Start Playwright
-with sync_playwright() as p:
-    # Launch a headless browser
-    browser = p.chromium.launch(headless=True)
-    # Open a new browser tab
-    page = browser.new_page()
-    page.set_viewport_size({"width": 1920, "height": 1080})  # Set window size
-
-    # scrape the reviews page
-    page.goto(url)
-    # wait up to 5 seconds for element to appear
-    page.wait_for_selector('.day-container', timeout=5000)
-
-    # Retrieve the HTML content
-    html = page.content()
-    print(html)
-
-    # Close the browser
-    browser.close()
-
+html = whistler_peak_scrape(whistler_data_url['Snowfall History'], '.day-container')
 
 soup = bs4.BeautifulSoup(html, "html.parser")
 days = soup.find("div", id="content_history").text
