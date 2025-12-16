@@ -1,4 +1,4 @@
-import playwright.sync_api
+from datetime import datetime, timedelta
 from playwright.sync_api import sync_playwright
 
 def whistler_peak_scrape(url, selector):
@@ -25,24 +25,21 @@ def whistler_peak_scrape(url, selector):
 
 def parse_whistler_date(date_str):
     """
-    Parses 'December 8, 2025 3pm' using strptime.
-    Format used: %B %d, %Y %I%p
+    Parses 'December 8, 2025 3pm' and manually adds 8 hours to get UTC.
     """
     try:
-        # 1. Clean whitespace
-        clean_str = date_str.strip()
+        clean_str = date_str.strip().upper()
 
-        # 2. Convert to uppercase for the AM/PM code (%p)
-        # strptime requires 'PM', but your data has 'pm'
-        clean_str = clean_str.upper()
+        # 1. Parse the local time (e.g., 3:00 PM)
+        dt_local = datetime.strptime(clean_str, "%B %d, %Y %I%p")
 
-        # 3. Parse using strptime
-        # %B = Full Month Name (December)
-        # %d = Day of month (8)
-        # %Y = Year with century (2025)
-        # %I = Hour (12-hour clock) (03)
-        # %p = AM or PM (PM)
-        return datetime.strptime(clean_str, "%B %d, %Y %I%p")
+        # 2. Add 8 hours to convert PST to UTC
+        # (3pm PST + 8 hours = 11pm UTC)
+        dt_utc = dt_local + timedelta(hours=8)
+
+        # 3. Return as a string formatted for Notion
+        # We manually append "Z" or "+00:00" so Notion knows it is UTC
+        return dt_utc.isoformat() + "Z"
 
     except ValueError as e:
         print(f"Could not parse date: {e}")
