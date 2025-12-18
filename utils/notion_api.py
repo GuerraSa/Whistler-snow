@@ -1,6 +1,7 @@
 import requests
 import pandas as pd
 import cred
+import re
 
 def fetch_db_metadata(database_id):
     """
@@ -143,3 +144,15 @@ def parse_property(prop):
         return rollup_obj.get(result_type)
 
     return None
+
+def clean_notion_number(value_str):
+    """
+    Extracts the largest integer from a string (e.g., "8-11cm" -> 11).
+    Returns 0 if no number is found.
+    """
+    if not value_str or value_str == "0cm":
+        return 0
+    numbers = re.findall(r'\d+', str(value_str))
+    if not numbers:
+        return 0
+    return int(max(map(int, numbers)))
