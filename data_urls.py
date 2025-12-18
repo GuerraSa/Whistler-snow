@@ -2,9 +2,9 @@ whistler_data_url = {
     "Lifts" : "https://whistlerpeak.com/elevations/",
     "Snowfall History" : "https://whistlerpeak.com/snow/history/",
     "Weather Forecast" : {
-        "1400m" : "https://whistlerpeak.com/weather/",
+        "1480m" : "https://www.snow-forecast.com/resorts/Whistler-Blackcomb/6day/mid",
         "1800m" : "https://whistlerpeak.com/forecast/",
-        "2248m" : "https://whistlerpeak.com/weather-top/"
+        "2248m" : "https://www.snow-forecast.com/resorts/Whistler-Blackcomb/6day/top"
     },
     "Weather Stations": {
         "7th Heaven" : "https://whistlerpeak.com/temps/seventh/",
