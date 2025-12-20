@@ -635,9 +635,3 @@ def get_forecast(elevation):
     else:
         print(f"❌ Error: Elevation '{elevation}' not recognized.")
 
-# --- EXECUTION ---
-# You can now run all three:
-# get_forecast("1480m")
-# get_forecast("1800m")
-# get_forecast("2248m")
-# update_snow_history()
