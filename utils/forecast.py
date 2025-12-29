@@ -3,16 +3,24 @@ import bs4
 import re
 import pprint
 import pandas as pd
+import requests  # Added for fetch_all_db_rows
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from playwright.sync_api import sync_playwright
 
 # Local Imports
 from cred import NOTION_ENDPOINT, HEADERS
+import cred  # Needed for the new fetch_all_db_rows structure using requests
 from notion_dbs import notion_db_id
 from data_urls import whistler_data_url
-from utils.notion_api import fetch_all_db_rows
 from utils.func import whistler_peak_scrape, parse_whistler_date
+
+# ==========================================
+# 0. CONSTANTS & CONFIG
+# ==========================================
+
+SNOW_HISTORY_DB_ID = '145e268796a88032969be9ff33906b3e'
+CURRENT_SEASON_PAGE_ID = "2b8e268796a88004b66bc101e8f04340"
 
 
 # ==========================================
@@ -26,23 +34,16 @@ def clean_notion_number(value_str):
     """
     if not value_str or value_str == "-" or "nan" in str(value_str).lower():
         return 0
-
-    # FIX: Regex uses (?<!\d) to ensure the hyphen is NOT preceded by a digit.
-    # "10-15" -> Matches "10" and "15" (hyphen skipped because '0' precedes it).
-    # "-10"   -> Matches "-10" (hyphen kept because nothing precedes it).
+    # Regex uses (?<!\d) to ensure the hyphen is NOT preceded by a digit.
     numbers = re.findall(r'(?<!\d)-?\d+', str(value_str))
-
     if not numbers:
         return 0
-
     ints = list(map(int, numbers))
-
-    # Return rounded average
     return int(round(sum(ints) / len(ints)))
 
 
 def get_elevation_relation_id(search_term):
-    """Finds the Page ID for the given elevation in the Notion Database."""
+    # Note: We don't filter this one as it's a small DB
     df_data = fetch_all_db_rows(notion_db_id['Weather Forecast Elevations'])
     if df_data is not None:
         match = df_data[df_data["Weather Source + Elevation"].str.contains(search_term, na=False)]
@@ -52,18 +53,114 @@ def get_elevation_relation_id(search_term):
     return None
 
 
-def fetch_existing_forecasts():
-    """Fetches current DB rows to prevent duplicates."""
-    print("Checking Notion for existing reports...")
-    return fetch_all_db_rows(notion_db_id['Weather Forecasts'])
+def parse_property(prop):
+    # Simple parser helper for the fetch function
+    ptype = prop.get("type")
+    if ptype == "title":
+        return prop["title"][0]["text"]["content"] if prop["title"] else ""
+    elif ptype == "rich_text":
+        return prop["rich_text"][0]["text"]["content"] if prop["rich_text"] else ""
+    elif ptype == "number":
+        return prop["number"]
+    elif ptype == "select":
+        return prop["select"]["name"] if prop["select"] else ""
+    elif ptype == "date":
+        return prop["date"]["start"] if prop["date"] else ""
+    elif ptype == "checkbox":
+        return prop["checkbox"]
+    elif ptype == "formula":
+        # Handle formula types (string, number, boolean/checkbox, date)
+        ftype = prop["formula"].get("type")
+        return prop["formula"].get(ftype)
+    return None
+
+
+def fetch_all_db_rows(database_id, filter_payload=None):
+    """
+    Fetches rows from a Notion database, handling pagination.
+    Optional: Accepts a Notion API filter dictionary (filter_payload).
+    """
+    url = f"{cred.NOTION_ENDPOINT}/databases/{database_id}/query"
+
+    if filter_payload:
+        print("🔍 Applying Notion filter to query...")
+
+    all_results = []
+    has_more = True
+    next_cursor = None
+
+    try:
+        while has_more:
+            payload = {}
+            if filter_payload:
+                payload["filter"] = filter_payload
+            if next_cursor:
+                payload["start_cursor"] = next_cursor
+
+            response = requests.post(url, json=payload, headers=cred.HEADERS)
+            response.raise_for_status()
+
+            data = response.json()
+            results = data.get("results", [])
+            all_results.extend(results)
+
+            has_more = data.get("has_more")
+            next_cursor = data.get("next_cursor")
+
+        if not all_results:
+            return None
+
+        clean_rows = []
+        for page in all_results:
+            row_data = {}
+            row_data["Page_ID"] = page["id"]
+            props = page.get("properties")
+            for col_name, col_data in props.items():
+                row_data[col_name] = parse_property(col_data)
+            clean_rows.append(row_data)
+
+        df = pd.DataFrame(clean_rows)
+        # Reorder to put Page_ID first
+        if not df.empty:
+            cols = ["Page_ID"] + [c for c in df.columns if c != "Page_ID"]
+            df = df[cols]
+        return df
+
+    except Exception as e:
+        print(f"❌ Fetch Error: {e}")
+        return None
+
+
+def fetch_existing_forecasts(elevation):
+    """
+    Fetches ONLY rows matching the specific elevation AND 'Latest Report?' = True.
+    """
+    print(f"Checking Notion for existing {elevation} reports (Latest only)...")
+
+    # Construct Filter
+    my_filter = {
+        "and": [
+            {
+                "property": "Elevation + Update Time",
+                "title": {
+                    "starts_with": elevation
+                }
+            },
+            {
+                "property": "Latest Report?",  # Make sure this matches your Notion property name exactly
+                "formula": {
+                    "checkbox": {
+                        "equals": True
+                    }
+                }
+            }
+        ]
+    }
+
+    return fetch_all_db_rows(notion_db_id['Weather Forecasts'], filter_payload=my_filter)
 
 
 def parse_ski_date(date_str):
-    """
-    Parses dates like 'Dec 4' into the correct year based on the current season context.
-    Logic: If current month is Nov/Dec, Oct-Dec dates are current year.
-    If current month is Jan-Oct, Oct-Dec dates are previous year.
-    """
     try:
         date_obj = datetime.strptime(date_str, "%b %d")
     except ValueError:
@@ -73,27 +170,15 @@ def parse_ski_date(date_str):
     current_year = now.year
     current_month = now.month
     row_month = date_obj.month
-
-    late_months = [10, 11, 12]  # Oct, Nov, Dec
+    late_months = [10, 11, 12]
 
     if current_month in [11, 12]:
-        if row_month in late_months:
-            year = current_year
-        else:
-            year = current_year  # Usually current year for Jan-May if we are in Nov/Dec (future) or just scrape logic
-            # Note: Ideally if we are in Dec 2025, Jan 2025 was past. Jan 2026 is future.
-            # This logic assumes historical data scraping usually implies 'this season'.
-            # Adjust if scraping next year's dates.
-            year = current_year + 1 if row_month < 6 else current_year
+        year = current_year if row_month in late_months else (current_year + 1 if row_month < 6 else current_year)
     else:
-        # We are in Jan-Oct (e.g., Feb 2026)
-        if row_month in late_months:
-            # Dec data belongs to previous year (2025)
-            year = current_year - 1
-        else:
-            year = current_year
+        year = current_year - 1 if row_month in late_months else current_year
 
     return date_obj.replace(year=year)
+
 
 # ==========================================
 # 2. LOGIC FOR SNOW-FORECAST.COM (1480m & 2248m)
@@ -102,13 +187,11 @@ def parse_ski_date(date_str):
 def _process_snow_forecast_site(elevation):
     print(f"--- Processing {elevation} (Snow-Forecast.com) ---")
 
-    # 1. Scrape
     url = whistler_data_url['Weather Forecast'][elevation]
     html = whistler_peak_scrape(url, '.forecast-table')
     soup = bs4.BeautifulSoup(html, "html.parser")
     meta_dict = {}
 
-    # 2. Metadata
     vancouver_tz = ZoneInfo("America/Vancouver")
     now_van = datetime.now(vancouver_tz)
     report_dt_obj = now_van
@@ -253,8 +336,9 @@ def _process_snow_forecast_site(elevation):
             "Precipitation Type": precip_type
         })
 
-    # 5. Upload Logic (Updated for Elevation Check)
-    existing_df = fetch_existing_forecasts()
+    # 5. Upload Logic (Optimized Fetch)
+    # --- CHANGE: Pass elevation to fetch only relevant rows ---
+    existing_df = fetch_existing_forecasts(elevation)
     existing_combinations = set()
 
     if existing_df is not None and not existing_df.empty:
@@ -263,17 +347,9 @@ def _process_snow_forecast_site(elevation):
 
         for _, row in existing_df.iterrows():
             if pd.notnull(row['Report Date Norm']):
-                # --- FIX: Extract Elevation from Title ---
-                # Title format: "1400m - 2025-..." -> split by space/hyphen to get "1400m"
                 title_val = str(row.get('Elevation + Update Time', ''))
                 existing_elev = title_val.split(' ')[0] if title_val else "Unknown"
-
-                existing_combinations.add((
-                    row['Report Date Norm'],
-                    row['Forecast Date Norm'],
-                    str(row.get('Time of Day', '')),
-                    existing_elev  # Added Elevation to the key
-                ))
+                existing_combinations.add((row['Report Date Norm'], row['Forecast Date Norm'], existing_elev))
 
     current_report_dt_norm = pd.to_datetime(meta_dict["Report Date"]).tz_localize("America/Vancouver").tz_convert("UTC")
     report_date_iso = report_dt_obj.isoformat()
@@ -286,8 +362,7 @@ def _process_snow_forecast_site(elevation):
         for period_data in periods:
             period_name = period_data.get("Period", "Unknown")
 
-            # --- FIX: Check Tuple includes 'elevation' ---
-            if (current_report_dt_norm, date_key, period_name, elevation) in existing_combinations:
+            if (current_report_dt_norm, date_key, elevation) in existing_combinations:
                 print(f"⏭️ Skipping {date_key} ({period_name}) for {elevation}: Already exists.")
                 continue
 
@@ -323,6 +398,7 @@ def _process_snow_forecast_site(elevation):
             else:
                 print(f"❌ Error uploading {date_key}: {response.text}")
 
+
 # ==========================================
 # 3. LOGIC FOR 1800m (Alpine / RWDI)
 # ==========================================
@@ -334,7 +410,6 @@ def _process_1800m(elevation):
     soup = bs4.BeautifulSoup(html, "html.parser")
     meta_dict = {}
 
-    # 2. Extract Metadata
     time_containers = soup.find_all("div", class_='alpine__time-container')
     if len(time_containers) >= 2:
         first_block = time_containers[0]
@@ -363,19 +438,14 @@ def _process_1800m(elevation):
     about_p = soup.find("p", class_="typeDetails")
     if about_p: meta_dict["About Forecast"] = about_p.get_text(strip=True)
 
-    # 3. Prepare Report Date Object (for calculations)
     raw_report_obj = meta_dict.get("Report Date")
     if isinstance(raw_report_obj, str):
-        # Convert string back to object for day-math logic
-        # Replace Z with +00:00 just in case it's ISO formatted
         report_date_obj = datetime.fromisoformat(raw_report_obj.replace("Z", "+00:00"))
     else:
         report_date_obj = raw_report_obj or datetime.now(ZoneInfo("UTC"))
 
-    # Prepare string for Notion upload
     raw_report_str = report_date_obj.isoformat() if report_date_obj else None
 
-    # 4. Extract Cards
     meta_dict["Forecasts"] = {}
     forecast_cards = soup.find_all("div", class_="alpine__card")
     days_of_week = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -449,8 +519,9 @@ def _process_1800m(elevation):
 
         meta_dict["Forecasts"][date_str] = card_data
 
-    # 5. Upload Preparation
-    existing_df = fetch_existing_forecasts()
+    # 5. Upload Preparation (Optimized Fetch)
+    # --- CHANGE: Pass elevation here too ---
+    existing_df = fetch_existing_forecasts(elevation)
     existing_combinations = set()
     if existing_df is not None and not existing_df.empty:
         existing_df['Report Date Norm'] = pd.to_datetime(existing_df['Report Date'], utc=True, errors='coerce')
@@ -468,21 +539,13 @@ def _process_1800m(elevation):
 
     forecast_rel_id = get_elevation_relation_id(elevation)
 
-    # --- FIX: Handle Next Update String safely ---
     next_update_raw = meta_dict.get("Next Update")
-    next_update_str = None
-    if next_update_raw:
-        if isinstance(next_update_raw, str):
-            next_update_str = next_update_raw
-        else:
-            next_update_str = next_update_raw.isoformat()
-    # ---------------------------------------------
+    next_update_str = next_update_raw.isoformat() if next_update_raw else None
 
     vancouver_time = report_date_obj.astimezone(ZoneInfo("America/Vancouver")).strftime('%Y-%m-%dT%H:%M')
 
     # 6. Upload Loop
     for date_key, forecast in meta_dict["Forecasts"].items():
-        # Check Tuple includes Elevation
         if (current_report_dt_norm, date_key, elevation) in existing_combinations:
             print(f"⏭️ Skipping {date_key} for {elevation}: Already exists.")
             continue
@@ -522,7 +585,6 @@ def _process_1800m(elevation):
 # 4. LOGIC FOR SNOWFALL HISTORY
 # ==========================================
 
-CURRENT_SEASON_PAGE_ID = "2b8e268796a88004b66bc101e8f04340" # 25/26 Season
 def update_snow_history(season_page_id=CURRENT_SEASON_PAGE_ID):
     print("--- Updating Snowfall History ---")
 
@@ -558,25 +620,18 @@ def update_snow_history(season_page_id=CURRENT_SEASON_PAGE_ID):
         df[col] = df[col].astype(str).str.replace('cm', '').astype(int)
 
     df['Date'] = df['Date'].apply(lambda x: parse_ski_date(x))
-    # Drop rows where date parsing failed (just in case)
     df = df.dropna(subset=['Date'])
 
-    # 3. Check Existing Notion Data
-    existing_df = fetch_all_db_rows(notion_db_id['Snowfall History'])
+    # 3. Check Existing Notion Data (No filtering needed for history usually)
+    existing_df = fetch_all_db_rows(SNOW_HISTORY_DB_ID)
 
     if existing_df is not None and not existing_df.empty:
-        # Convert Notion 'Date' title property to datetime
-        # Assumes the Title property is named 'Date' and holds YYYY-MM-DD
         existing_df['Date'] = pd.to_datetime(existing_df['Date'], errors='coerce')
         latest_notion_date = existing_df['Date'].max()
-        print(f"Latest date in Notion: {latest_notion_date}")
-
-        # Filter for new rows
         rows_to_add = df[df['Date'] > latest_notion_date].copy()
     else:
         rows_to_add = df.copy()
 
-    # Sort chronological
     rows_to_add = rows_to_add.sort_values(by='Date')
 
     print(f"Found {len(rows_to_add)} new rows to add.")
@@ -589,7 +644,7 @@ def update_snow_history(season_page_id=CURRENT_SEASON_PAGE_ID):
             date_iso = row["Date"].strftime("%Y-%m-%d")
 
             body = {
-                "parent": {"database_id": notion_db_id['Snowfall History']},
+                "parent": {"database_id": SNOW_HISTORY_DB_ID},
                 "properties": {
                     "Date": {
                         "title": [{"text": {"content": date_iso}}]
@@ -615,6 +670,7 @@ def update_snow_history(season_page_id=CURRENT_SEASON_PAGE_ID):
     else:
         print("No new history to upload.")
 
+
 # ==========================================
 # 5. MAIN DISPATCHER FUNCTION
 # ==========================================
@@ -625,13 +681,10 @@ def get_forecast(elevation):
     Inputs: "1480m", "1800m", "2248m"
     """
     if elevation in ["1480m", "2248m"]:
-        # These elevations use the Snow-Forecast.com table structure
         _process_snow_forecast_site(elevation)
 
     elif elevation == "1800m":
-        # This uses the RWDI Alpine structure
         _process_1800m(elevation)
 
     else:
         print(f"❌ Error: Elevation '{elevation}' not recognized.")
-
