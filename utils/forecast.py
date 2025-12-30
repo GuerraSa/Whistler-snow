@@ -4,6 +4,7 @@ import re
 import pprint
 import pandas as pd
 import requests
+import time  # Added for retry delays
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from playwright.sync_api import sync_playwright
@@ -26,6 +27,41 @@ CURRENT_SEASON_PAGE_ID = "2b8e268796a88004b66bc101e8f04340"
 # ==========================================
 # 1. SHARED HELPER FUNCTIONS
 # ==========================================
+
+def send_to_notion_with_retry(payload, max_retries=3):
+    """
+    Sends a payload to Notion with automatic retries for timeouts and 5xx errors.
+    """
+    url = "https://api.notion.com/v1/pages"
+
+    for attempt in range(max_retries):
+        try:
+            # Increased timeout to 30s to handle slow Notion responses
+            response = httpx.post(url, headers=HEADERS, json=payload, timeout=30.0)
+
+            # If successful, return immediately
+            if response.status_code == 200:
+                return response
+
+            # If client error (400-499), do NOT retry
+            if 400 <= response.status_code < 500:
+                print(f"❌ Client Error ({response.status_code}): {response.text}")
+                return response
+
+            # If server error (500+), let it retry
+            print(f"⚠️ Server Error ({response.status_code}), retrying in 2s...")
+
+        except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ConnectError) as e:
+            print(f"⚠️ Network error ({type(e).__name__}) on attempt {attempt + 1}/{max_retries}, retrying in 2s...")
+        except Exception as e:
+            print(f"⚠️ Unexpected error: {e}, retrying...")
+
+        # Wait before next attempt
+        time.sleep(2)
+
+    print("❌ Failed after max retries.")
+    return None
+
 
 def clean_notion_number(value_str):
     """
@@ -380,13 +416,14 @@ def _process_snow_forecast_site(elevation):
             if forecast_rel_id:
                 props["Forecast Elevation"] = {"relation": [{"id": forecast_rel_id}]}
 
-            response = httpx.post("https://api.notion.com/v1/pages", headers=HEADERS,
-                                  json={"parent": {"database_id": notion_db_id['Weather Forecasts']},
-                                        "properties": props})
-            if response.status_code == 200:
+            # --- UPLOAD WITH RETRY ---
+            payload = {"parent": {"database_id": notion_db_id['Weather Forecasts']}, "properties": props}
+            response = send_to_notion_with_retry(payload)
+
+            if response and response.status_code == 200:
                 print(f"✅ Success: Uploaded {date_key} ({period_name})")
             else:
-                print(f"❌ Error uploading {date_key}: {response.text}")
+                print(f"❌ Error uploading {date_key} ({period_name})")
 
 
 # ==========================================
@@ -582,12 +619,14 @@ def _process_1800m(elevation):
         if forecast_rel_id:
             props["Forecast Elevation"] = {"relation": [{"id": forecast_rel_id}]}
 
-        response = httpx.post("https://api.notion.com/v1/pages", headers=HEADERS,
-                              json={"parent": {"database_id": notion_db_id['Weather Forecasts']}, "properties": props})
-        if response.status_code == 200:
+        # --- UPLOAD WITH RETRY ---
+        payload = {"parent": {"database_id": notion_db_id['Weather Forecasts']}, "properties": props}
+        response = send_to_notion_with_retry(payload)
+
+        if response and response.status_code == 200:
             print(f"✅ Success: Uploaded {date_key}")
         else:
-            print(f"❌ Error uploading {date_key}: {response.text}")
+            print(f"❌ Error uploading {date_key}")
 
 
 # ==========================================
@@ -664,14 +703,13 @@ def update_snow_history(season_page_id=CURRENT_SEASON_PAGE_ID):
                 }
             }
 
-            try:
-                response = httpx.post("https://api.notion.com/v1/pages", headers=HEADERS, json=body)
-                if response.status_code == 200:
-                    print(f"✅ Added History: {date_iso}")
-                else:
-                    print(f"❌ Failed History: {date_iso} - {response.text}")
-            except Exception as e:
-                print(f"⚠️ Error sending {date_iso}: {e}")
+            # --- UPLOAD WITH RETRY ---
+            response = send_to_notion_with_retry(body)
+
+            if response and response.status_code == 200:
+                print(f"✅ Added History: {date_iso}")
+            else:
+                print(f"❌ Failed History: {date_iso}")
     else:
         print("No new history to upload.")
 
