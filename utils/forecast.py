@@ -469,17 +469,13 @@ def _process_1800m(elevation):
     # 3. Prepare Report Date Object
     raw_report_obj = meta_dict.get("Report Date")
     if isinstance(raw_report_obj, str):
-        # Convert string back to object for day-math logic
-        # Replace Z with +00:00 just in case it's ISO formatted
         try:
             report_date_obj = datetime.fromisoformat(raw_report_obj.replace("Z", "+00:00"))
         except ValueError:
-            # Fallback if parse_whistler_date returned a non-ISO string
             report_date_obj = datetime.now(ZoneInfo("UTC"))
     else:
         report_date_obj = raw_report_obj or datetime.now(ZoneInfo("UTC"))
 
-    # Prepare string for Notion upload
     raw_report_str = report_date_obj.isoformat()
 
     # 4. Extract Cards
@@ -519,10 +515,11 @@ def _process_1800m(elevation):
             txt = precip_node.get_text(strip=True)
             if "Snow:" in txt:
                 card_data["Precipitation Type"] = "Snow"
-                card_data["Precipitation Amount"] = txt.split("Snow:")[1].strip()
+                # FIX: Replace "Trace" with "0" to ensure ranges like "Trace-2" parse as "0-2" (positive range)
+                card_data["Precipitation Amount"] = txt.split("Snow:")[1].strip().replace("Trace", "0")
             elif "Rain:" in txt:
                 card_data["Precipitation Type"] = "Rain"
-                card_data["Precipitation Amount"] = txt.split("Rain:")[1].strip()
+                card_data["Precipitation Amount"] = txt.split("Rain:")[1].strip().replace("Trace", "0")
 
         fl_node = card.find(string=re.compile("Freezing Level"))
         if fl_node and fl_node.parent.find("span"):
@@ -575,18 +572,13 @@ def _process_1800m(elevation):
 
     forecast_rel_id = get_elevation_relation_id(elevation)
 
-    # --- FIX: Safe Next Update Parsing ---
     next_update_raw = meta_dict.get("Next Update")
     next_update_str = None
-
     if next_update_raw:
         if isinstance(next_update_raw, str):
-            # Already a string, use it directly
             next_update_str = next_update_raw
         elif hasattr(next_update_raw, 'isoformat'):
-            # It's a datetime object, convert it
             next_update_str = next_update_raw.isoformat()
-    # -------------------------------------
 
     vancouver_time = report_date_obj.astimezone(ZoneInfo("America/Vancouver")).strftime('%Y-%m-%dT%H:%M')
 
@@ -609,7 +601,8 @@ def _process_1800m(elevation):
             "Ridge Wind Direction": {
                 "rich_text": [{"text": {"content": forecast.get("Ridge Wind Direction", "Unknown")}}]},
             "Ridge Wind Strength": {"rich_text": [{"text": {"content": forecast.get("Ridge Wind Strength", "N/A")}}]},
-            "Precipitation Amount": {"number": clean_notion_number(forecast.get("Precipitation Amount"))},
+            # FIX: Added abs() here as a safety net
+            "Precipitation Amount": {"number": abs(clean_notion_number(forecast.get("Precipitation Amount")))},
             "Alpine High": {"number": forecast.get("Alpine High")},
             "Alpine Low": {"number": forecast.get("Alpine Low")},
             "Freezing Level (m)": {"number": int(forecast.get("Freezing Level (m)", 0))},
@@ -619,7 +612,6 @@ def _process_1800m(elevation):
         if forecast_rel_id:
             props["Forecast Elevation"] = {"relation": [{"id": forecast_rel_id}]}
 
-        # --- UPLOAD WITH RETRY ---
         payload = {"parent": {"database_id": notion_db_id['Weather Forecasts']}, "properties": props}
         response = send_to_notion_with_retry(payload)
 
