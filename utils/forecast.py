@@ -217,6 +217,7 @@ def _process_snow_forecast_site(elevation):
     url = whistler_data_url['Weather Forecast'][elevation]
     html = whistler_peak_scrape(url, '.forecast-table')
     soup = bs4.BeautifulSoup(html, "html.parser")
+    get_time_until_update(soup, elevation)
     meta_dict = {}
 
     vancouver_tz = ZoneInfo("America/Vancouver")
@@ -435,6 +436,7 @@ def _process_1800m(elevation):
 
     html = whistler_peak_scrape(whistler_data_url['Weather Forecast'][elevation], '.alpine__container')
     soup = bs4.BeautifulSoup(html, "html.parser")
+    get_time_until_update(soup, elevation)
     meta_dict = {}
 
     # 2. Extract Metadata
@@ -620,7 +622,6 @@ def _process_1800m(elevation):
         else:
             print(f"❌ Error uploading {date_key}")
 
-
 # ==========================================
 # 4. LOGIC FOR SNOWFALL HISTORY
 # ==========================================
@@ -705,9 +706,105 @@ def update_snow_history(season_page_id=CURRENT_SEASON_PAGE_ID):
     else:
         print("No new history to upload.")
 
+# ==========================================
+# 5. SCHEDULE UPDATE FUNCTION
+# ==========================================
+
+def get_time_until_update(soup, elevation):
+    """
+    Scrapes the specific elevation page to find the 'Time Until Next Update'.
+    Returns the time remaining in minutes (integer).
+    Returns None if the data cannot be found.
+    """
+    print(f"--- Checking Update Timer for {elevation} ---")
+
+    # 1. Setup & Scrape
+    vancouver_tz = ZoneInfo("America/Vancouver")
+    now_van = datetime.now(vancouver_tz)
+
+    # -------------------------------------------
+    # CASE A: 1480m & 2248m (Snow-Forecast.com)
+    # Logic: These pages have a specific countdown timer in the HTML.
+    # -------------------------------------------
+    if elevation in ["1480m", "2248m"]:
+        # Look for: <span class="location-issued__update">...<span class="hours">01</span>...</span>
+        update_node = soup.find("span", class_="location-issued__update")
+
+        if update_node:
+            try:
+                # Extract hours and minutes from the countdown spans
+                h_node = update_node.find("span", class_="hours")
+                m_node = update_node.find("span", class_="minutes")
+
+                hours = int(h_node.get_text(strip=True)) if h_node else 0
+                minutes = int(m_node.get_text(strip=True)) if m_node else 0
+
+                total_minutes = (hours * 60) + minutes
+                print(f"⏱️ {elevation}: Update in {total_minutes} mins ({hours}h {minutes}m)")
+                return total_minutes
+            except ValueError:
+                print(f"⚠️ Could not parse countdown integers for {elevation}")
+                return None
+        else:
+            print(f"⚠️ Countdown timer not found for {elevation}")
+            return None
+
+    # -------------------------------------------
+    # CASE B: 1800m (Alpine / RWDI)
+    # Logic: This page has a static "Next update:" timestamp string.
+    # We must parse it and calculate the difference from NOW.
+    # -------------------------------------------
+    elif elevation == "1800m":
+        # Look for the text "Next update:" in the time containers
+        time_containers = soup.find_all("div", class_='alpine__time-container')
+        next_update_str = None
+
+        # Iterate containers to find the one with "Next update:"
+        for container in time_containers:
+            text = container.get_text(strip=True)
+            if "Next update:" in text:
+                # Text usually looks like: "Next update: Tuesday December 30, 2025 4pm"
+                next_update_str = text.split("Next update:")[1].strip()
+                break
+
+        if next_update_str:
+            try:
+                # Clean up the string (remove potential extra periods or spaces)
+                clean_str = next_update_str.rstrip(".")
+
+                # Parse format: "Tuesday December 30, 2025 4pm" -> "%A %B %d, %Y %I%p"
+                # Note: The site sometimes omits the comma after the day, handle both.
+                try:
+                    target_dt = datetime.strptime(clean_str, "%A %B %d, %Y %I%p")
+                except ValueError:
+                    # Retry without comma
+                    target_dt = datetime.strptime(clean_str, "%A %B %d %Y %I%p")
+
+                # Localize to Vancouver time
+                target_dt = target_dt.replace(tzinfo=vancouver_tz)
+
+                # Calculate difference
+                diff = target_dt - now_van
+                total_minutes = int(diff.total_seconds() / 60)
+
+                # If time has passed (negative), return 0 or the negative value
+                # (Negative implies the update is overdue)
+                print(f"⏱️ {elevation}: Next update is {target_dt} ({total_minutes} mins from now)")
+                return total_minutes
+
+            except ValueError as ve:
+                print(f"⚠️ Date parsing failed for '{next_update_str}': {ve}")
+                return None
+        else:
+            print(f"⚠️ 'Next update' text not found for {elevation}")
+            return None
+
+    else:
+        print(f"❌ Elevation '{elevation}' not supported.")
+        return None
 
 # ==========================================
-# 5. MAIN DISPATCHER FUNCTION
+# 6. MAIN DISPATCHER FUNCTION
 # ==========================================
 
 def get_forecast(elevation):
