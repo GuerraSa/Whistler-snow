@@ -13,7 +13,7 @@ def whistler_peak_scrape(url, selector):
         # scrape the reviews page
         page.goto(url)
         # wait up to 5 seconds for element to appear
-        page.wait_for_selector(selector, timeout=5000)
+        page.wait_for_selector(selector, timeout=60000)
 
         # Retrieve the HTML content
         html = page.content()
