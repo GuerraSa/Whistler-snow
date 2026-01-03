@@ -654,7 +654,7 @@ def update_snow_history(season_page_id=CURRENT_SEASON_PAGE_ID):
 
     cols_to_fix = ["Snowfall", "Season", "Base"]
     for col in cols_to_fix:
-        df[col] = df[col].astype(str).str.replace('cm', '').astype(int)
+        df[col] = df[col].astype(str).str.replace('cm', '').astype(float)
 
     df['Date'] = df['Date'].apply(lambda x: parse_ski_date(x))
     df = df.dropna(subset=['Date'])
