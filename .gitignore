@@ -3,3 +3,5 @@ cred.py
 /__pycache__
 *.iml
 *.xml
+dump_project.py.env
+.env
