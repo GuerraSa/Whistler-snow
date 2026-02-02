@@ -58,7 +58,7 @@ def update_snow_history():
     client = NotionClient(token=NOTION_TOKEN, database_id=config.DB_IDS["Snowfall History"])
 
     print("   📊 Querying Notion Data Source...")
-    existing_df = client.query_datasource()
+    existing_df = client.query_datasource(return_df=True)
 
     existing_dates = set()
 
