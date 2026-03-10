@@ -5,3 +5,4 @@ cred.py
 *.xml
 dump_project.py.env
 .env
+.idea
