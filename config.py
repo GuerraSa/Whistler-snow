@@ -9,17 +9,6 @@ DB_IDS = {
     "Ski Conditions": "2dae268796a8808d87d6c970ab4d49ba"
 }
 
-# Datasource IDs
-DS_IDS = {
-    "Lifts": "",
-    "Lift Wait Times": "",
-    "Snowfall History": "5c44378e-068f-4074-ab7b-6f3b31fb7633",
-    "Weather Forecast Elevations": "",
-    "Weather Forecasts": "",
-    "Weather Stations": "",
-    "Ski Conditions": ""
-}
-
 # Page IDs
 SEASON_PAGE_ID = "2b8e268796a88004b66bc101e8f04340"
 

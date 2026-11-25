@@ -16,12 +16,13 @@ if __name__ == "__main__":
     while True:
         try:
             # 1. Run task and get dynamic delay (in MINUTES)
-            wait_minutes = main.run_task()
+            wait_minutes = main.run_all_tasks()
 
             # Safety check: If calculation failed or returned 0/None
             if not wait_minutes or wait_minutes < 1:
                 logging.warning("⚠️ Received 0 or None for wait time. Defaulting to 60 minutes.")
                 wait_minutes = 60
+            wait_minutes = min(wait_minutes, 60)  # webcams and the other jobs still run at least hourly
 
             # 2. Log the sleep time clearly
             logging.info(f"--- 💤 Sleeping for {wait_minutes:.1f} minutes ---")
@@ -37,6 +38,6 @@ if __name__ == "__main__":
         except Exception as e:
             # 4. Crash Handling: If main.py crashes, don't kill the service.
             # Log the error, wait 1 minute, and try again.
-            logging.error(f"🔥 CRASH OCCURRED: {e}")
+            logging.exception(f"🔥 CRASH OCCURRED: {e}")
             logging.info("Retrying in 60 seconds...")
             time.sleep(60)

@@ -1,6 +1,6 @@
 cred.py
 .DS_Store
-/__pycache__
+__pycache__/
 *.iml
 *.xml
 dump_project.py.env

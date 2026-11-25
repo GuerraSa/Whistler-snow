@@ -30,14 +30,14 @@ def sync_lift_info():
                 "Top Elevation (m)": int(cells[2].get_text(strip=True).replace(',', ''))
             })
 
+    if not lift_data:
+        print("   ⚠️ No lifts found on the page (layout changed?).")
+        return
     local_df = pd.DataFrame(lift_data)
 
     # 2. Fetch Existing Notion Data
     client = NotionClient(token=NOTION_TOKEN, database_id=config.DB_IDS["Lifts"])
-
-    # Handle response (list or dict)
-    response = client.query_database()
-    results = response.get("results", []) if isinstance(response, dict) else response
+    results = client.query_datasource(strict=True)
 
     existing_names = set()
 

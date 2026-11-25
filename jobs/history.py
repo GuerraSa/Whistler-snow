@@ -4,21 +4,14 @@ from datetime import datetime
 from internal_tools import NotionClient
 import config
 from cred import NOTION_TOKEN
-from core import scraper
+from core import scraper, utils
 
 
 def parse_ski_date(date_str):
     try:
-        date_obj = datetime.strptime(date_str, "%b %d")
+        return utils.parse_recent_date(date_str, "%b %d", datetime.now(utils.WHISTLER_TZ))
     except ValueError:
         return None
-
-    now = datetime.now()
-    year = now.year
-    # Logic: If month is May-Dec (5-12) and current month is Jan-May (1-5), it was last year.
-    if date_obj.month > 6 and now.month < 6:
-        year = now.year - 1
-    return date_obj.replace(year=year)
 
 
 def update_snow_history():
@@ -49,7 +42,8 @@ def update_snow_history():
 
     # Clean numbers
     for col in ["Snowfall", "Season", "Base"]:
-        df[col] = df[col].astype(str).str.replace('cm', '').astype(float)
+        df[col] = pd.to_numeric(df[col].astype(str).str.replace('cm', ''), errors='coerce')
+    df = df.dropna(subset=["Snowfall", "Base"])  # pre-season days show a bare 'cm'
 
     df['DateObj'] = df['Date'].apply(lambda x: parse_ski_date(x))
     df = df.dropna(subset=['DateObj'])
@@ -58,7 +52,7 @@ def update_snow_history():
     client = NotionClient(token=NOTION_TOKEN, database_id=config.DB_IDS["Snowfall History"])
 
     print("   📊 Querying Notion Data Source...")
-    existing_df = client.query_datasource(return_df=True)
+    existing_df = client.query_datasource(return_df=True, strict=True)  # a failed read must stop, not look empty
 
     existing_dates = set()
 

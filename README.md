@@ -14,7 +14,7 @@ It utilizes **Google Gemini AI** to visually analyze webcam feeds (determining i
 ## ⚡ Features
 
 * **☁️ Multi-Elevation Forecasting:** Aggregates weather reports for **1480m**, **1800m**, and **2248m** from multiple sources (Snow-Forecast.com & RWDI).
-* **📸 AI Webcam Analysis:** Uses Google Gemini 1.5 Flash to look at webcam images and classify sky conditions (e.g., *Bluebird, Overcast, Night*).
+* **📸 AI Webcam Analysis:** Uses Google Gemini Flash (`gemini-flash-latest`) to look at webcam images and classify sky conditions (e.g., *Bluebird, Overcast, Night*).
 * **🚠 Lift Status Sync:** Scrapes real-time open/close status and elevation data for all lifts.
 * **📅 Historical Archiving:** incremental scraping of daily snowfall history to build a long-term climate dataset.
 * **🛡️ Smart Deduplication:** Robust logic to prevent duplicate entries in Notion, ensuring clean data history.
