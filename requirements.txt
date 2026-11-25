@@ -1,0 +1,5 @@
+beautifulsoup4==4.14.3
+pandas==2.3.3
+playwright==1.56.0
+requests==2.32.5
+internal_tools @ git+https://github.com/GuerraSa/my-internal-tools.git@8bf8ea72c7a789265227dba5ec9a30029e85b267
